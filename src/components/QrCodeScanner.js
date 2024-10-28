@@ -1,28 +1,23 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useEffect } from "react";
 import jsQR from "jsqr";
+import { observer } from "mobx-react-lite";
 
-const CameraButton = () => {
+const QrCodeScanner = observer(({ store }) => {
     const videoRef = useRef(null);
-    const [qrData, setQrData] = useState(null);
-    const [previousQrData, setPreviousQrData] = useState(null);
-    const [isVideoReady, setIsVideoReady] = useState(false);
-    const [facingMode, setFacingMode] = useState("environment"); // Default to rear camera
-    const canvasRef = useRef(null); // To draw the highlight around the QR code
+    const canvasRef = useRef(null);
 
     useEffect(() => {
         const getCameraStream = () => {
             navigator.mediaDevices
                 .getUserMedia({
-                    video: {
-                        facingMode: facingMode, // Use environment (rear camera) by default
-                    },
+                    video: { facingMode: store.facingMode },
                 })
                 .then((stream) => {
                     if (videoRef.current) {
                         videoRef.current.srcObject = stream;
                         videoRef.current.onloadedmetadata = () => {
                             videoRef.current.play();
-                            setIsVideoReady(true);
+                            store.setIsVideoReady(true);
                         };
                     }
                 })
@@ -53,15 +48,13 @@ const CameraButton = () => {
                 });
         };
 
-        // Ensure the site is requesting permission
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             getCameraStream();
         } else {
             alert("Your browser does not support camera access.");
         }
-    }, [facingMode]);
+    }, [store.facingMode]);
 
-    // Function to continuously scan for QR codes
     useEffect(() => {
         const scanQrCode = () => {
             const video = videoRef.current;
@@ -69,38 +62,24 @@ const CameraButton = () => {
 
             if (video && video.readyState === video.HAVE_ENOUGH_DATA && canvas) {
                 const context = canvas.getContext("2d");
-
-                // Adjust canvas dimensions to match the video
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-
-                // Draw the video frame onto the canvas
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                // Get image data from the canvas
                 const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-
-                // Scan the image data for a QR code
                 const qrCode = jsQR(imageData.data, imageData.width, imageData.height);
 
-                // Clear the previous drawings
                 context.clearRect(0, 0, canvas.width, canvas.height);
 
-                // Check if a QR code was detected
                 if (qrCode) {
-                    // If QR code is detected, update both qrData and previousQrData
-                    if (qrCode.data !== previousQrData) {
-                        setQrData(qrCode.data);
-                        setPreviousQrData(qrCode.data); // Update the previous QR data
+                    if (qrCode.data !== store.previousQrData) {
+                        store.setQrData(qrCode.data);
+                        store.setPreviousQrData(qrCode.data);
                     }
 
-                    // Draw an animated highlight around the QR code
                     context.strokeStyle = "rgba(0, 255, 0, 0.8)";
                     context.lineWidth = 4;
-
                     const { topLeftCorner, topRightCorner, bottomRightCorner, bottomLeftCorner } = qrCode.location;
-
-                    // Draw the border around the QR code
                     context.beginPath();
                     context.moveTo(topLeftCorner.x, topLeftCorner.y);
                     context.lineTo(topRightCorner.x, topRightCorner.y);
@@ -108,28 +87,19 @@ const CameraButton = () => {
                     context.lineTo(bottomLeftCorner.x, bottomLeftCorner.y);
                     context.closePath();
                     context.stroke();
+                } else if (store.previousQrData) {
+                    store.setQrData(store.previousQrData);
                 } else {
-                    // If no QR code is detected, keep the last detected QR code
-                    if (previousQrData) {
-                        setQrData(previousQrData); // Keep the previous QR data
-                    } else {
-                        setQrData(null); // Clear the QR data if there was no previous QR code
-                    }
+                    store.setQrData(null);
                 }
             }
-            requestAnimationFrame(scanQrCode); // Continue scanning for QR codes
+            requestAnimationFrame(scanQrCode);
         };
 
-        if (isVideoReady) {
-            requestAnimationFrame(scanQrCode); // Start scanning when the video is ready
+        if (store.isVideoReady) {
+            requestAnimationFrame(scanQrCode);
         }
-    }, [isVideoReady, previousQrData]); // Only re-run if video is ready or previous QR data changes
-
-    const toggleCamera = () => {
-        setFacingMode((prevMode) =>
-            prevMode === "environment" ? "user" : "environment"
-        );
-    };
+    }, [store.isVideoReady, store.previousQrData]);
 
     return (
         <div style={{ position: "relative", width: "100%", height: "auto" }}>
@@ -137,11 +107,9 @@ const CameraButton = () => {
                 ref={videoRef}
                 playsInline
                 muted
-                style={{ width: "100%", height: "auto", display: isVideoReady ? "block" : "none" }}
+                style={{ width: "430px", height: "auto", display: store.isVideoReady ? "block" : "none" }}
             />
-            {!isVideoReady && <p>Loading camera...</p>}
-
-            {/* Overlay Canvas for QR Highlight */}
+            {!store.isVideoReady && <p>Loading camera...</p>}
             <canvas
                 ref={canvasRef}
                 style={{
@@ -151,23 +119,20 @@ const CameraButton = () => {
                     width: "100%",
                     height: "auto",
                     pointerEvents: "none",
-                    zIndex: 2
+                    zIndex: 2,
                 }}
             />
-
-            <div
-                style={{
-                    position: "absolute",
-                    top: "10px", // Keep the buttons near the top of the video
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    display: "flex",
-                    alignItems: "center",
-                    zIndex: 1,
-                }}
-            >
+            <div style={{
+                position: "absolute",
+                top: "10px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                display: "flex",
+                alignItems: "center",
+                zIndex: 1,
+            }}>
                 <button
-                    onClick={toggleCamera}
+                    onClick={store.toggleCamera}
                     style={{
                         padding: "10px 20px",
                         backgroundColor: "#28a745",
@@ -175,27 +140,25 @@ const CameraButton = () => {
                         border: "none",
                         borderRadius: "5px",
                         cursor: "pointer",
-                        marginRight: "10px", // Space between button and QR data
+                        marginRight: "10px",
                     }}
                 >
                     Switch Camera
                 </button>
-                {qrData && (
-                    <div
-                        style={{
-                            padding: "10px",
-                            backgroundColor: "#f8f9fa",
-                            borderRadius: "5px",
-                            boxShadow: "0px 0px 5px rgba(0,0,0,0.1)",
-                            color: "#333",
-                        }}
-                    >
-                        QR Code Data: {qrData}
+                {store.qrData && (
+                    <div style={{
+                        padding: "10px",
+                        backgroundColor: "#f8f9fa",
+                        borderRadius: "5px",
+                        boxShadow: "0px 0px 5px rgba(0,0,0,0.1)",
+                        color: "#333",
+                    }}>
+                        QR Code Data: {store.qrData}
                     </div>
                 )}
             </div>
         </div>
     );
-};
+});
 
-export default CameraButton;
+export default QrCodeScanner;
